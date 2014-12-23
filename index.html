@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+{% autoescape true %}
+<html>
+<head>
+  <link type="text/css" rel="stylesheet" href="/stylesheets/main.css" />
+</head>
+  <body>
+
+    <hr>
+    {% if sensors %}
+      {% for sensor in sensors %}
+    <br><a href='/sensor/{{sensor.name}}'> {{sensor.name}}</a>
+      {%- endfor %}
+    {%else%}
+      <br>No Sensors found
+    {%endif%}
+  </body>
+</html>
+{% endautoescape %}

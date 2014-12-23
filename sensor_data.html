@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+{% autoescape true %}
+<html>
+<head>
+  <link type="text/css" rel="stylesheet" href="/stylesheets/main.css" />
+</head>
+  <body>
+
+    <hr>
+    {% if data_points %}
+      {% for datapoint in data_points %}
+        <br>{{datapoint.date_time}} : {{datapoint.temperature_2}}
+      {%- endfor %}
+    {%else%}
+      <br>No Sensors found
+    {%endif%}
+  </body>
+</html>
+{% endautoescape %}
