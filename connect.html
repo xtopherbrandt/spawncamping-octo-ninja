@@ -1,0 +1,103 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+<html>
+   <head>
+      <meta charset="utf-8">
+      <meta http-equiv="X-UA-Compatible" content="IE=edge">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+      <title>Wine Collector Connect</title>
+
+      <!-- Bootstrap -->
+      <link href="/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+
+      <link type="text/css" rel="stylesheet" href="/stylesheets/connect.css">
+
+      <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+      <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+      <!--[if lt IE 9]>
+         <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+         <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+      <![endif]-->
+      
+      <!-- BEGIN Pre-requisites -->
+      <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js">
+      </script>
+      <!-- END Pre-requisites -->
+      <script src="https://apis.google.com/js/client:platform.js?onload=start" async defer >
+      </script>
+      
+   </head>
+
+<body>
+      <div class='jumbotron'>
+        <div class="container">
+          <h1>Connect With Us and Start Collecting</h1>
+          <p>Connect your sensors to our system to get the whole story</p>
+        </div>
+      </div>
+      <div class="container">
+        <div class="row">
+          <div class="col-md-4">
+          </div>
+          <div class="col-md-4">
+            <div id="signinButton">
+              <!--  data-approvalprompt is for development only, it forces app approval each time the connect page is shown -->
+              <span
+                    class="g-signin"
+                    data-callback="connectCallback"
+                    data-clientid="152595687607-lga00lldpekopfk9sdg65ufjlolv2cdn.apps.googleusercontent.com"
+                    data-cookiepolicy="single_host_origin"
+                    data-requestvisibleactions=""
+                    data-scope="profile"
+                    data-redirecturi="postmessage"
+                    data-accesstype="offline"                    
+                    data-approvalprompt="force">
+              </span>
+            </div>
+          </div>
+          <div class="col-md-4">
+          </div>
+        </div>
+      </div>
+      <script>
+      function connectCallback(authResult) {
+        if (authResult['code']) {
+          console.log(authResult['code']);
+
+          // Hide the sign-in button now that the user is authorized, for example:
+          $('#signinButton').attr('style', 'display: none');
+
+          // Send the code to the server
+          $.ajax({
+            type: 'POST',
+            url: 'connect?state={{state}}',
+            contentType: 'application/octet-stream; charset=utf-8',
+            success: function(result) {
+              // Handle or verify the server response if necessary.
+
+              // Prints the list of people that the user has allowed the app to know
+              // to the console.
+              console.log(result);
+              if (result['profile'] && result['people']){
+                $('#results').html('Hello ' + result['profile']['displayName'] + '. You successfully made a server side call to people.get and people.list');
+              } else {
+                $('#results').html('Failed to make a server-side call. Check your configuration and console.');
+              }
+            },
+            processData: false,
+            data: authResult['code']
+          });
+        } else if (authResult['error']) {
+          // There was an error.
+          // Possible error codes:
+          //   "access_denied" - User denied access to your app
+          //   "immediate_failed" - Could not automatially log in the user
+          // console.log('There was an error: ' + authResult['error']);
+        }
+      }
+      </script>                              
+      <!-- IE10 viewport hack for Surface/desktop Windows 8 bug -->
+      <script src="../../assets/js/ie10-viewport-bug-workaround.js"></script>
+                                                                 
+</body>

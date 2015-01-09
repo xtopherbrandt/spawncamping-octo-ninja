@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+{% autoescape true %}
+<html>
+<head>
+  <link type="text/css" rel="stylesheet" href="/stylesheets/main.css" />
+</head>
+  <body>
+    <div>
+      <div>
+        <form action='/sensor/new'>
+          Sensor URL: <input type='text' name='url'>
+          <input type='submit' name='submit' value='Save'>
+        </form>
+      </div>
+    </div>
+    <hr>
+  </body>
+</html>
+{% endautoescape %}

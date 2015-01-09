@@ -5,15 +5,30 @@
   <link type="text/css" rel="stylesheet" href="/stylesheets/main.css" />
 </head>
   <body>
-
+    <div class='nav'>
+      <div class='container'>
+        <ul>
+          <li><a href='/new_sensor.html'>New Sensor</a></li>
+        </ul>
+        <ul>
+          <li><a href="/connect">Sign Up</a></li>
+          <li><a href="#">Log In</a></li>
+          <li><a href="#">Help</a></li>
+        </ul>
+      </div>
+    </div>
     <hr>
-    {% if sensors %}
-      {% for sensor in sensors %}
-    <br><a href='/sensor/{{sensor.name}}'> {{sensor.name}}</a>
-      {%- endfor %}
-    {%else%}
-      <br>No Sensors found
-    {%endif%}
+    <div class='sensor-list'>
+      <div class='container'>
+        {% if sensors %}
+          {% for sensor in sensors %}
+        <br><a href='/sensor/{{sensor.name}}'> {{sensor.name}}</a>
+          {%- endfor %}
+        {%else%}
+          <br>No Sensors found
+        {%endif%}
+      </div>
+    </div>
   </body>
 </html>
 {% endautoescape %}
