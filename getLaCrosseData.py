@@ -39,16 +39,19 @@ class Sensor(ndb.Model):
   '''Models an individual sensor'''
   name = ndb.StringProperty()
   url=ndb.StringProperty()
+  first_observation_date=ndb.DateTimeProperty()
+  last_observation_date=ndb.DateTimeProperty()
+  observation_count=ndb.IntegerProperty()  
   
 class Observation(ndb.Model):
-    """Models an individual observation data point entry."""
-    '''The observation key is the timestamp'''
-    date_time = ndb.DateTimeProperty()
-    temperature_1 = ndb.FloatProperty()
-    temperature_2 = ndb.FloatProperty()
-    humidity = ndb.FloatProperty()
-    low_battery = ndb.IntegerProperty()
-    link_quality = ndb.FloatProperty()
+  """Models an individual observation data point entry."""
+  '''The observation key is the timestamp'''
+  date_time = ndb.DateTimeProperty()
+  temperature_1 = ndb.FloatProperty()
+  temperature_2 = ndb.FloatProperty()
+  humidity = ndb.FloatProperty()
+  low_battery = ndb.IntegerProperty()
+  link_quality = ndb.FloatProperty()
 
 class MainPage(webapp2.RequestHandler):
 
@@ -176,7 +179,7 @@ class SensorData:
       
       logging.info ( 'Get From La Crosse Data')
       
-      sensor_owner_key = 'xtopher.brandt@gmail.com'
+      sensor_owner_email = 'xtopher.brandt@gmail.com'
         
       logging.info ('  fetching from {0} to {1}'.format(startDate, endDate))
       
@@ -205,15 +208,27 @@ class SensorData:
       sensor_id = sensor_data['response']['id']
       sensor_serial = sensor_data['response']['serial']
       
-      logging.info( sensor_data['response']['serial'] )
+      #logging.info( sensor_data['response']['serial'] )
               
       logging.info ('Downloaded {0} data points'.format(len(sensor_data['response']['obs'])))
       
-      sensor_unit = Sensor()
-      sensor_unit.key = sensor_key(sensor_owner_key, sensor_serial )
-      sensor_unit.name = sensor_id
-      sensor_unit.put()
+      '''try to find the sensor unit'''
+      sensor = sensor_key(sensor_owner_email = sensor_owner_email, sensor_serial = sensor_serial )      
+      sensors = Sensor.query(Sensor.key == sensor).fetch()
       
+      if len(sensors) == 0 :
+        '''create a new one'''
+        sensor_unit = Sensor()
+        sensor_unit.key = sensor_key(sensor_owner_email, sensor_serial )
+        sensor_unit.name = sensor_id
+        sensor_unit.first_observation_date = datetime.datetime.now()
+        sensor_unit.last_observation_date = datetime.datetime(1970,11,7)
+        sensor_unit.observation_count = 0
+        sensor_unit.put()
+      else :
+        '''should only be one'''
+        sensor_unit = sensors[0]
+        
       for datapoint in sensor_data['response']['obs'] :
           # Add the task to the default queue.
           taskqueue.add(url='/save_datapoint', 
@@ -234,22 +249,40 @@ class SaveDataPoint(webapp2.RequestHandler):
       
       date_time_components = re.match('(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[1-2][0-9]|3[0-1])T([0-1][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])(?:.\d{7})?[+|-](0[0-9]|1[0-2]):(00|15|30|45)',self.request.get('date_time'))
                     
-      observation = Observation( )  
-      observation.key = observation_key(sensor_owner_email = sensor_owner_email, sensor_serial = self.request.get('sensor_serial'), timestamp = self.request.get('time_stamp') )
-      observation.date_time = datetime.datetime( int(date_time_components.group(1)),
+      sensor = sensor_key(sensor_owner_email = sensor_owner_email, sensor_serial = self.request.get('sensor_serial') )
+      sensor_unit = Sensor.query(Sensor.key == sensor).fetch()[0]
+
+      #logging.info("Adding Observation to Sensor: {0}".format(sensor_unit.name))
+      
+      observation_data = Observation( )  
+      observation_data.key = observation_key(sensor_owner_email = sensor_owner_email, sensor_serial = self.request.get('sensor_serial'), timestamp = self.request.get('time_stamp') )
+      observation_data.date_time = datetime.datetime( int(date_time_components.group(1)),
                                       int(date_time_components.group(2)),
                                       int(date_time_components.group(3)),
                                       int(date_time_components.group(4)),
                                       int(date_time_components.group(5)),
                                       int(date_time_components.group(6)))
-      observation.temperature_1 = float(self.request.get('temperature_1')) if self.request.get('temperature_1') <> '' else float(0)
-      observation.temperature_2 = float(self.request.get('temperature_2')) if self.request.get('temperature_2') <> '' else float(0)
-      observation.humidity = float(self.request.get('humidity')) if self.request.get('humidity') <> '' else float(0)
-      observation.low_battery = int(self.request.get('low_battery')) if self.request.get('low_battery') <> '' else float(0)
-      observation.link_quality = float(self.request.get('link_quality')) if self.request.get('link_quality') <> '' else float(0)
-      observation.put()
+      observation_data.temperature_1 = float(self.request.get('temperature_1')) if self.request.get('temperature_1') <> '' else float(0)
+      observation_data.temperature_2 = float(self.request.get('temperature_2')) if self.request.get('temperature_2') <> '' else float(0)
+      observation_data.humidity = float(self.request.get('humidity')) if self.request.get('humidity') <> '' else float(0)
+      observation_data.low_battery = int(self.request.get('low_battery')) if self.request.get('low_battery') <> '' else float(0)
+      observation_data.link_quality = float(self.request.get('link_quality')) if self.request.get('link_quality') <> '' else float(0)
+      observation_data.put()
           
-      #logging.info ('Datapoint {0} saved to {1}'.format(observation.key,observation.key.parent()))
+      '''update sensor aggrigate stats'''      
+      if observation_data.date_time < sensor_unit.first_observation_date :
+        logging.info("updated first observation date from: {0} to: {1}".format(sensor_unit.first_observation_date, observation_data.date_time))
+        sensor_unit.first_observation_date = observation_data.date_time
+      
+      if observation_data.date_time > sensor_unit.last_observation_date :
+        sensor_unit.last_observation_date = observation_data.date_time
+        logging.info("updated last observation date")
+      
+      sensor_unit.observation_count = sensor_unit.observation_count + 1
+      
+      sensor_unit.put()
+      
+      #logging.info ('Datapoint {0} saved to {1}'.format(observation_data.key,observation_data.key.parent()))
     
 application = webapp2.WSGIApplication([
     ('/', MainPage),

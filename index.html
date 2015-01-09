@@ -22,7 +22,14 @@
       <div class='container'>
         {% if sensors %}
           {% for sensor in sensors %}
-        <br><a href='/sensor/{{sensor.name}}'> {{sensor.name}}</a>
+        <li><a href='/sensor/{{sensor.name}}'> {{sensor.name}}</a></li>
+        <div class='sensor-info'>
+          <div class='container'>
+            <li>First Observation : {{sensor.first_observation_date}}</li>
+            <li>Last Observation : {{sensor.last_observation_date}}</li>
+            <li>Number of Observations : {{sensor.observation_count}}</li>
+          </div>
+        </div>
           {%- endfor %}
         {%else%}
           <br>No Sensors found
