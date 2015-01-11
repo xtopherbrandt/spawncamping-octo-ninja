@@ -10,20 +10,8 @@ indexes:
 # automatically uploaded to the admin console when you next deploy
 # your application using appcfg.py.
 
-- kind: EnvironmentDataPoint
-  ancestor: yes
-  properties:
-  - name: datetime
-    direction: desc
-
 - kind: Observation
   ancestor: yes
   properties:
   - name: date_time
-    direction: desc
-
-- kind: Observation
-  ancestor: yes
-  properties:
-  - name: datetime
     direction: desc

@@ -108,11 +108,20 @@ class Sensor_Handler(webapp2.RequestHandler):
       template = JINJA_ENVIRONMENT.get_template('sensor_data.html')
       self.response.write(template.render(template_values))
     
+'''Synchronize a sensor Handler'''
 class Synchronize(webapp2.RequestHandler):
 
-    def get(self):
+    def get(self, name):
+      sensor_query = Sensor.query(Sensor.name == name)
+      sensors = sensor_query.fetch()
+      sensor_data = []
+      
+      if len(sensors) > 0 :
+        sensor_unit = sensors[0]
+        logging.info ('Synchronizing Sensor : {0}'.format(sensor_unit.key))
 
-      numberOfDays = 1
+      '''determine the number of days we're out of sync'''
+      numberOfDays = (datetime.datetime.now() - sensor_unit.last_observation_date).days
       
       sensorData = SensorData()
       sensorData.login()
@@ -158,6 +167,7 @@ class SensorData:
          logged_in = True
          logging.info( 'Logged In' ) 
  
+    '''Handles the protocol for getting the most detailed data from Lacrosse'''
     def sync(self, numberOfDays):
     
       if numberOfDays > 179 :
@@ -271,12 +281,10 @@ class SaveDataPoint(webapp2.RequestHandler):
           
       '''update sensor aggrigate stats'''      
       if observation_data.date_time < sensor_unit.first_observation_date :
-        logging.info("updated first observation date from: {0} to: {1}".format(sensor_unit.first_observation_date, observation_data.date_time))
         sensor_unit.first_observation_date = observation_data.date_time
       
       if observation_data.date_time > sensor_unit.last_observation_date :
         sensor_unit.last_observation_date = observation_data.date_time
-        logging.info("updated last observation date")
       
       sensor_unit.observation_count = sensor_unit.observation_count + 1
       
@@ -290,7 +298,7 @@ application = webapp2.WSGIApplication([
     ('/SignIn', SignIn),
     ('/sensor/(\d+)', Sensor_Handler),
     ('/sensor/new', New_Sensor_Handler),
-    ('/sync', Synchronize),
+    ('/sensor/(\d+)/sync', Synchronize),
     ('/save_datapoint', SaveDataPoint)
 ], debug=True)
 
