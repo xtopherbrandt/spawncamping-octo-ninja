@@ -1,0 +1,4 @@
+cron:
+- description: daily sensor sync job
+  url: /sensor/5394/sync
+  schedule: every 24 hours

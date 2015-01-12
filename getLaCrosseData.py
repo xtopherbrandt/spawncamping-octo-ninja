@@ -50,7 +50,7 @@ class Observation(ndb.Model):
   temperature_1 = ndb.FloatProperty()
   temperature_2 = ndb.FloatProperty()
   humidity = ndb.FloatProperty()
-  low_battery = ndb.IntegerProperty()
+  low_battery = ndb.FloatProperty()
   link_quality = ndb.FloatProperty()
 
 class MainPage(webapp2.RequestHandler):
@@ -71,18 +71,27 @@ class MainPage(webapp2.RequestHandler):
 class New_Sensor_Handler(webapp2.RequestHandler):
 
     def get(self):
+      sensor_owner_query = SensorOwner.query(SensorOwner.key==sensor_owner_key('xtopher.brandt@gmail.com'))
+      sensor_owners = sensor_owner_query.fetch()
 
-      sensor_owner = SensorOwner()
-      sensor_owner.key = sensor_owner_key( 'xtopher.brandt@gmail.com' )
-      sensor_owner.name = 'Christopher Brandt'
-      sensor_owner.put()
+      '''if the sensor owner does not exist then continue'''
+      '''not elegant but does the job to ensure we don't duplicate effort'''
+      if len(sensor_owners) == 0 :
 
-      numberOfDays = 10000
-            
-      sensorData = SensorData()
-      sensorData.login()
-      sensorData.sync(numberOfDays)
+        sensor_owner = SensorOwner()
+        sensor_owner.key = sensor_owner_key( 'xtopher.brandt@gmail.com' )
+        sensor_owner.name = 'Christopher Brandt'
+        sensor_owner.put()
 
+        numberOfDays = 10000
+
+        sensorData = SensorData()
+        sensorData.login()
+        sensorData.sync(numberOfDays)
+
+      else:
+        logging.info ( "Sensor Owner exists so aborting new sensor")
+        
       self.redirect('/')
 
 class Sensor_Handler(webapp2.RequestHandler):
@@ -275,7 +284,7 @@ class SaveDataPoint(webapp2.RequestHandler):
       observation_data.temperature_1 = float(self.request.get('temperature_1')) if self.request.get('temperature_1') <> '' else float(0)
       observation_data.temperature_2 = float(self.request.get('temperature_2')) if self.request.get('temperature_2') <> '' else float(0)
       observation_data.humidity = float(self.request.get('humidity')) if self.request.get('humidity') <> '' else float(0)
-      observation_data.low_battery = int(self.request.get('low_battery')) if self.request.get('low_battery') <> '' else float(0)
+      observation_data.low_battery = float(self.request.get('low_battery')) if self.request.get('low_battery') <> '' else float(0)
       observation_data.link_quality = float(self.request.get('link_quality')) if self.request.get('link_quality') <> '' else float(0)
       observation_data.put()
           
