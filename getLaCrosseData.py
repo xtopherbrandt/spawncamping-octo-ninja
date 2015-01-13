@@ -24,12 +24,12 @@ JINJA_ENVIRONMENT = jinja2.Environment(
 def sensor_owner_key(sensor_owner_email):
   return ndb.Key('SensorOwner', sensor_owner_email)
 
-def sensor_key(sensor_owner_email, sensor_serial):
+def sensor_key(sensor_owner_key, sensor_serial):
   """Constructs a Datastore key for a sensor entity with sensor_serial."""
-  return ndb.Key('SensorOwner', sensor_owner_email, 'Sensor', sensor_serial)
+  return ndb.Key('Sensor', sensor_serial, parent = sensor_owner_key)
 
-def observation_key(sensor_owner_email, sensor_serial, timestamp):
-  return ndb.Key('SensorOwner', sensor_owner_email, 'Sensor', sensor_serial, 'Observation', timestamp )
+def observation_key( sensor_key, timestamp):
+  return ndb.Key('Observation', timestamp, parent = sensor_key )
 
 class SensorOwner(ndb.Model):
   '''Models a sensor owner'''
@@ -71,26 +71,32 @@ class MainPage(webapp2.RequestHandler):
 class New_Sensor_Handler(webapp2.RequestHandler):
 
     def get(self):
-      sensor_owner_query = SensorOwner.query(SensorOwner.key==sensor_owner_key('xtopher.brandt@gmail.com'))
+      owner_key = sensor_owner_key('xtopher.brandt@gmail.com')
+      sensor_owner_query = SensorOwner.query(SensorOwner.key==owner_key)
       sensor_owners = sensor_owner_query.fetch()
 
-      '''if the sensor owner does not exist then continue'''
-      '''not elegant but does the job to ensure we don't duplicate effort'''
+      '''if the sensor owner does not exist then add me'''
       if len(sensor_owners) == 0 :
-
         sensor_owner = SensorOwner()
-        sensor_owner.key = sensor_owner_key( 'xtopher.brandt@gmail.com' )
+        sensor_owner.key = owner_key
         sensor_owner.name = 'Christopher Brandt'
         sensor_owner.put()
+      
+      '''Get the set of sensor that this owner has'''
+      sensors_query = Sensor.query(ancestor=owner_key)
+      sensors = sensors_query.fetch()
 
-        numberOfDays = 10000
+      '''if the sensor owner does not have a sensor then continue to fetch everything'''
+      '''not elegant but does the job to ensure we don't duplicate effort'''
+      if len(sensors) == 0 :
 
         sensorData = SensorData()
         sensorData.login()
-        sensorData.sync(numberOfDays)
+        sensorData.sync()
 
       else:
-        logging.info ( "Sensor Owner exists so aborting new sensor")
+        '''otherwise abort'''
+        logging.info ( "Sensor exists so aborting new sensor")
         
       self.redirect('/')
 
@@ -121,26 +127,27 @@ class Sensor_Handler(webapp2.RequestHandler):
 class Synchronize(webapp2.RequestHandler):
 
     def get(self, name):
+      sensor_unit = None
       sensor_query = Sensor.query(Sensor.name == name)
       sensors = sensor_query.fetch()
-      sensor_data = []
       
       if len(sensors) > 0 :
         sensor_unit = sensors[0]
         logging.info ('Synchronizing Sensor : {0}'.format(sensor_unit.key))
-
-      '''determine the number of days we're out of sync'''
-      numberOfDays = (datetime.datetime.now() - sensor_unit.last_observation_date).days
       
-      sensorData = SensorData()
+      sensorData = SensorData(sensor_unit)
       sensorData.login()
-      sensorData.sync(numberOfDays)
+      sensorData.sync()
 
       self.redirect('/')
 
 class SensorData:
     
     session_cookie = ''
+    senseor = None
+    
+    def __init__(self, sensor = None):
+      self.sensor = sensor
       
     def login(self):
             
@@ -177,23 +184,32 @@ class SensorData:
          logging.info( 'Logged In' ) 
  
     '''Handles the protocol for getting the most detailed data from Lacrosse'''
-    def sync(self, numberOfDays):
-    
-      if numberOfDays > 179 :
-        '''need to get all hourly data earlier than 179 days ago'''
-        '''but only up to 179 days ago'''
-        startDate = datetime.datetime.now() - datetime.timedelta(days=numberOfDays)
-        endDate = datetime.datetime.now() - datetime.timedelta(days=179)
-        self.fetchData(startDate, endDate)
-        numberOfDays = 179
-      
-      '''get detailed data for the last 179 days 1 day at a time'''
-      while numberOfDays > 0 :
-        startDate = datetime.datetime.now() - datetime.timedelta(days=numberOfDays)
-        endDate = startDate + datetime.timedelta(days=1)
-        self.fetchData (startDate, endDate)
-        numberOfDays = numberOfDays - 1
+    def sync(self):
+
+      last_observation = datetime.datetime(1970,11,7,0,0,0)
+
+      if self.sensor is not None :
+        last_observation = self.sensor.last_observation_date
         
+      numberOfDaysToSync = (datetime.datetime.now() - last_observation).days
+        
+      observationCount = -1
+      fromDays = 0
+      
+      '''get detailed data 1 day at a time starting today until we don't get anymore data'''
+      while observationCount <> 0 and numberOfDaysToSync > 0 :
+        fromDays = fromDays + 1
+        numberOfDaysToSync = numberOfDaysToSync - 1
+        startDate = datetime.datetime.now() - datetime.timedelta(days=fromDays)
+        endDate = startDate + datetime.timedelta(days=1)
+        observationCount = self.fetchData (startDate, endDate)
+        
+      '''if we still have days to sync, get the remaining as hourly'''
+      if numberOfDaysToSync > 0 :
+        startDate = last_observation
+        endDate = datetime.datetime.now() - datetime.timedelta(days=fromDays)
+        self.fetchData(startDate, endDate)
+              
     def fetchData(self,startDate, endDate):
       
       logging.info ( 'Get From La Crosse Data')
@@ -207,12 +223,9 @@ class SensorData:
         
       logging.info ('   from={0} days to={1} days...'.format(fromDays, toDays))
         
-      '''Can only get sub-hour observations for the last 179 days and only when requestings up to 1 day at a time'''
       '''from is the delta from now to the earliest date'''
       '''to is the delta from the earliest date to the last date'''
-      '''the earliest date can only be 170 days from now'''
       '''https://www.lacrossealerts.com/v1/observations/5394?format=json&from=-179days&to=1days'''
-      '''beyond 179 days can only get hourly observations'''
       download_url = 'https://www.lacrossealerts.com/v1/observations/5394?format=json&from=-{0}days&to={1}days'.format(fromDays, toDays)
       result = urlfetch.fetch(download_url,
                                method=urlfetch.GET,
@@ -226,29 +239,22 @@ class SensorData:
 
       sensor_id = sensor_data['response']['id']
       sensor_serial = sensor_data['response']['serial']
-      
-      #logging.info( sensor_data['response']['serial'] )
               
       logging.info ('Downloaded {0} data points'.format(len(sensor_data['response']['obs'])))
       
-      '''try to find the sensor unit'''
-      sensor = sensor_key(sensor_owner_email = sensor_owner_email, sensor_serial = sensor_serial )      
-      sensors = Sensor.query(Sensor.key == sensor).fetch()
-      
-      if len(sensors) == 0 :
+      if self.sensor is None :
         '''create a new one'''
-        sensor_unit = Sensor()
-        sensor_unit.key = sensor_key(sensor_owner_email, sensor_serial )
-        sensor_unit.name = sensor_id
-        sensor_unit.first_observation_date = datetime.datetime.now()
-        sensor_unit.last_observation_date = datetime.datetime(1970,11,7)
-        sensor_unit.observation_count = 0
-        sensor_unit.put()
-      else :
-        '''should only be one'''
-        sensor_unit = sensors[0]
-        
+        self.sensor = Sensor()
+        self.sensor.key = sensor_key(sensor_owner_key(sensor_owner_email), sensor_serial )
+        self.sensor.name = sensor_id
+        self.sensor.first_observation_date = datetime.datetime.now()
+        self.sensor.last_observation_date = datetime.datetime(1970,11,7)
+        self.sensor.observation_count = 0
+        self.sensor.put()
+            
       for datapoint in sensor_data['response']['obs'] :
+        observation = observation_key( self.sensor.key, datapoint['timeStamp']).get()
+        if observation is None :
           # Add the task to the default queue.
           taskqueue.add(url='/save_datapoint', 
                         params={'sensor_serial' : sensor_serial,
@@ -260,6 +266,9 @@ class SensorData:
                                 'low_battery' : datapoint['values']['lowbatt'] if 'lowbatt' in datapoint['values'] else '',
                                 'link_quality' : datapoint['values']['linkquality'] if 'linkquality' in datapoint['values'] else ''})
 
+      '''return the number of observations we received so that the calling procedure can determine what to request next'''
+      return len(sensor_data['response']['obs'])
+    
 class SaveDataPoint(webapp2.RequestHandler):
 
     def post(self):
@@ -268,13 +277,11 @@ class SaveDataPoint(webapp2.RequestHandler):
       
       date_time_components = re.match('(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[1-2][0-9]|3[0-1])T([0-1][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])(?:.\d{7})?[+|-](0[0-9]|1[0-2]):(00|15|30|45)',self.request.get('date_time'))
                     
-      sensor = sensor_key(sensor_owner_email = sensor_owner_email, sensor_serial = self.request.get('sensor_serial') )
-      sensor_unit = Sensor.query(Sensor.key == sensor).fetch()[0]
-
-      #logging.info("Adding Observation to Sensor: {0}".format(sensor_unit.name))
+      sensor_unit_key = sensor_key(sensor_owner_key( sensor_owner_email ), sensor_serial = self.request.get('sensor_serial') )
+      sensor_unit = sensor_unit_key.get()
       
       observation_data = Observation( )  
-      observation_data.key = observation_key(sensor_owner_email = sensor_owner_email, sensor_serial = self.request.get('sensor_serial'), timestamp = self.request.get('time_stamp') )
+      observation_data.key = observation_key(sensor_unit_key, timestamp = self.request.get('time_stamp') )
       observation_data.date_time = datetime.datetime( int(date_time_components.group(1)),
                                       int(date_time_components.group(2)),
                                       int(date_time_components.group(3)),
@@ -298,8 +305,6 @@ class SaveDataPoint(webapp2.RequestHandler):
       sensor_unit.observation_count = sensor_unit.observation_count + 1
       
       sensor_unit.put()
-      
-      #logging.info ('Datapoint {0} saved to {1}'.format(observation_data.key,observation_data.key.parent()))
     
 application = webapp2.WSGIApplication([
     ('/', MainPage),
