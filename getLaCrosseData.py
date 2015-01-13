@@ -123,7 +123,16 @@ class Sensor_Handler(webapp2.RequestHandler):
       template = JINJA_ENVIRONMENT.get_template('sensor_data.html')
       self.response.write(template.render(template_values))
     
-'''Synchronize a sensor Handler'''
+'''
+  Synchronize a sensor Handler
+    Query string parameters:
+      start := earliest date in the synchronization period
+      end := latest date in the synchronization period
+      
+      if niether start nor end are specified then the period is simply the last observation to today
+      if the start is provided without an end then the period is the start to today
+      if the end is provided with no start then the period is the beginning of time to the end.
+'''
 class Synchronize(webapp2.RequestHandler):
 
     def get(self, name):
