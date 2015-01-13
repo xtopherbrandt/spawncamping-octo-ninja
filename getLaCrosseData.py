@@ -137,7 +137,15 @@ class Synchronize(webapp2.RequestHandler):
       
       sensorData = SensorData(sensor_unit)
       sensorData.login()
-      sensorData.sync()
+      
+      requestStart = None
+      requestEnd = None
+      if len (self.request.get('start')) > 0 :
+        requestStart = datetime.datetime.strptime(self.request.get('start'), '%Y-%m-%d')
+ 
+      if len (self.request.get('end')) :  
+        requestEnd = datetime.datetime.strptime(self.request.get('end'), '%Y-%m-%d')
+      sensorData.sync(requestStart,requestEnd)
 
       self.redirect('/')
 
@@ -184,30 +192,55 @@ class SensorData:
          logging.info( 'Logged In' ) 
  
     '''Handles the protocol for getting the most detailed data from Lacrosse'''
-    def sync(self):
-
+    def sync(self, requestStart=None, requestEnd=None):
+          
       last_observation = datetime.datetime(1970,11,7,0,0,0)
 
       if self.sensor is not None :
         last_observation = self.sensor.last_observation_date
+
+      '''Unless otherwise specified the first day to sync is the last observation and the last day is today'''
+      if requestStart is None and requestEnd is None:
+        requestStart = last_observation
+        requestEnd = datetime.datetime.now()
+      
+      '''if an end date is specified with no start, then start at the beginning of time and go to the specified end'''
+      if requestStart is None and requestEnd is not None :
+        requestStart = datetime.datetime(1970,11,7,0,0,0)
+      
+      '''if a start date is specified with no end date, then start at the specified date and go to today'''
+      if requestStart is not None and requestEnd is None :
+        requestEnd = datetime.datetime.now()
         
-      numberOfDaysToSync = (datetime.datetime.now() - last_observation).days
+      if requestStart is not None and requestEnd is not None :
+        if requestEnd < requestStart :
+          '''start date is always the earliest'''
+          '''if the query start and end are backwards, correct them'''
+          temp = requestEnd
+          requestEnd = requestStart
+          requestStart = temp
+        
+      numberOfDaysToSync = (requestEnd - requestStart).days
         
       observationCount = -1
       fromDays = 0
       
-      '''get detailed data 1 day at a time starting today until we don't get anymore data'''
+      start_string = requestStart.strftime("%Y-%m-%d")
+      end_string = requestEnd.strftime("%Y-%m-%d")
+      logging.info(" requestStart = {0} ... requestEnd = {1}".format(start_string, end_string))
+      
+      '''get detailed data 1 day at a time starting at the end date until we don't get anymore data'''
       while observationCount <> 0 and numberOfDaysToSync > 0 :
         fromDays = fromDays + 1
         numberOfDaysToSync = numberOfDaysToSync - 1
-        startDate = datetime.datetime.now() - datetime.timedelta(days=fromDays)
+        startDate = requestEnd - datetime.timedelta(days=fromDays)
         endDate = startDate + datetime.timedelta(days=1)
         observationCount = self.fetchData (startDate, endDate)
         
       '''if we still have days to sync, get the remaining as hourly'''
       if numberOfDaysToSync > 0 :
-        startDate = last_observation
-        endDate = datetime.datetime.now() - datetime.timedelta(days=fromDays)
+        startDate = requestStart
+        endDate = requestEnd - datetime.timedelta(days=fromDays)
         self.fetchData(startDate, endDate)
               
     def fetchData(self,startDate, endDate):
