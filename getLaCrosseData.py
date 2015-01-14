@@ -154,6 +154,7 @@ class Synchronize(webapp2.RequestHandler):
  
       if len (self.request.get('end')) :  
         requestEnd = datetime.datetime.strptime(self.request.get('end'), '%Y-%m-%d')
+      
       sensorData.sync(requestStart,requestEnd)
 
       self.redirect('/')
@@ -161,7 +162,7 @@ class Synchronize(webapp2.RequestHandler):
 class SensorData:
     
     session_cookie = ''
-    senseor = None
+    sensor = None
     
     def __init__(self, sensor = None):
       self.sensor = sensor
@@ -230,87 +231,24 @@ class SensorData:
           requestStart = temp
         
       numberOfDaysToSync = (requestEnd - requestStart).days
-        
-      observationCount = -1
-      fromDays = 0
       
-      start_string = requestStart.strftime("%Y-%m-%d")
-      end_string = requestEnd.strftime("%Y-%m-%d")
-      logging.info(" requestStart = {0} ... requestEnd = {1}".format(start_string, end_string))
-      
-      '''get detailed data 1 day at a time starting at the end date until we don't get anymore data'''
-      while observationCount <> 0 and numberOfDaysToSync > 0 :
-        fromDays = fromDays + 1
-        numberOfDaysToSync = numberOfDaysToSync - 1
-        startDate = requestEnd - datetime.timedelta(days=fromDays)
-        endDate = startDate + datetime.timedelta(days=1)
-        observationCount = self.fetchData (startDate, endDate)
-        
-      '''if we still have days to sync, get the remaining as hourly'''
-      if numberOfDaysToSync > 0 :
-        startDate = requestStart
-        endDate = requestEnd - datetime.timedelta(days=fromDays)
-        self.fetchData(startDate, endDate)
-              
-    def fetchData(self,startDate, endDate):
-      
-      logging.info ( 'Get From La Crosse Data')
-      
-      sensor_owner_email = 'xtopher.brandt@gmail.com'
-        
-      logging.info ('  fetching from {0} to {1}'.format(startDate, endDate))
-      
-      fromDays = (datetime.datetime.now() - startDate).days
-      toDays = (endDate - startDate).days
-        
-      logging.info ('   from={0} days to={1} days...'.format(fromDays, toDays))
-        
-      '''from is the delta from now to the earliest date'''
-      '''to is the delta from the earliest date to the last date'''
-      '''https://www.lacrossealerts.com/v1/observations/5394?format=json&from=-179days&to=1days'''
-      download_url = 'https://www.lacrossealerts.com/v1/observations/5394?format=json&from=-{0}days&to={1}days'.format(fromDays, toDays)
-      result = urlfetch.fetch(download_url,
-                               method=urlfetch.GET,
-                               headers={'Cookie' : self.session_cookie},
-                               follow_redirects=True,
-                               validate_certificate=True)
-      
-      logging.info( 'Download Response Status: ' + str(result.status_code))
+      start_string = requestStart.strftime("%Y-%m-%d %H:%M:%S")
+      end_string = requestEnd.strftime("%Y-%m-%d %H:%M:%S")
+      logging.info(" requestStart = {0} ... requestEnd = {1} : number of days = {2}".format(start_string, end_string, numberOfDaysToSync))
 
-      sensor_data = json.loads(result.content)
+      '''queue first fetch task'''
+      startDate = requestEnd - datetime.timedelta(days=1)
+      endDate = startDate + datetime.timedelta(days=1)
+      self.fetchData (startDate, endDate, numberOfDaysToSync)
 
-      sensor_id = sensor_data['response']['id']
-      sensor_serial = sensor_data['response']['serial']
-              
-      logging.info ('Downloaded {0} data points'.format(len(sensor_data['response']['obs'])))
-      
-      if self.sensor is None :
-        '''create a new one'''
-        self.sensor = Sensor()
-        self.sensor.key = sensor_key(sensor_owner_key(sensor_owner_email), sensor_serial )
-        self.sensor.name = sensor_id
-        self.sensor.first_observation_date = datetime.datetime.now()
-        self.sensor.last_observation_date = datetime.datetime(1970,11,7)
-        self.sensor.observation_count = 0
-        self.sensor.put()
-            
-      for datapoint in sensor_data['response']['obs'] :
-        observation = observation_key( self.sensor.key, datapoint['timeStamp']).get()
-        if observation is None :
-          # Add the task to the default queue.
-          taskqueue.add(url='/save_datapoint', 
-                        params={'sensor_serial' : sensor_serial,
-                                'time_stamp' : datapoint['timeStamp'],
-                                'date_time': datapoint['dateTimeISO'],
-                                'temperature_1' : datapoint['values']['temp1'] if 'temp1' in datapoint['values'] else '',
-                                'temperature_2' : datapoint['values']['temp2'] if 'temp2' in datapoint['values'] else '',
-                                'humidity' : datapoint['values']['rh'] if 'rh' in datapoint['values'] else '',
-                                'low_battery' : datapoint['values']['lowbatt'] if 'lowbatt' in datapoint['values'] else '',
-                                'link_quality' : datapoint['values']['linkquality'] if 'linkquality' in datapoint['values'] else ''})
+    def fetchData(self,startDate, endDate, numberOfDaysToSync):
+      logging.info ( 'Queuing initial fetch')
+      taskqueue.add(url='/fetch_observations', 
+                    params={'numberOfDaysToSync' : numberOfDaysToSync,
+                            'session_cookie' : self.session_cookie,
+                            'startDate' : startDate.strftime("%Y-%m-%d %H:%M:%S"),
+                            'endDate' : endDate.strftime("%Y-%m-%d %H:%M:%S") })
 
-      '''return the number of observations we received so that the calling procedure can determine what to request next'''
-      return len(sensor_data['response']['obs'])
-    
 class SaveDataPoint(webapp2.RequestHandler):
 
     def post(self):
@@ -347,7 +285,123 @@ class SaveDataPoint(webapp2.RequestHandler):
       sensor_unit.observation_count = sensor_unit.observation_count + 1
       
       sensor_unit.put()
+
+class FetchObservations(webapp2.RequestHandler):
+
+    session_cookie =''
     
+    '''
+    Post Data:
+      session_cookie
+      numberOfDaysToSync
+      startDate
+      endDate
+    '''
+    def post(self):
+      logging.info ( 'Fetch started')
+      
+      '''Get task input data'''
+      self.session_cookie = self.request.get('session_cookie')
+      numberOfDaysToSync = int(self.request.get('numberOfDaysToSync'))
+      startDate = datetime.datetime.strptime(self.request.get('startDate'), '%Y-%m-%d %H:%M:%S')
+      endDate = datetime.datetime.strptime(self.request.get('endDate'), '%Y-%m-%d %H:%M:%S')
+      
+      sensor_owner_email = 'xtopher.brandt@gmail.com'
+  
+      sensor = None
+        
+      logging.info ('  fetching from {0} to {1}'.format(startDate, endDate))
+      
+      fromDays = (datetime.datetime.now() - startDate).days
+      toDays = (endDate - startDate).days
+        
+      logging.info ('   from={0} days to={1} days...'.format(fromDays, toDays))
+        
+      '''from is the delta from now to the earliest date'''
+      '''to is the delta from the earliest date to the last date'''
+      '''https://www.lacrossealerts.com/v1/observations/5394?format=json&from=-179days&to=1days'''
+      download_url = 'https://www.lacrossealerts.com/v1/observations/5394?format=json&from=-{0}days&to={1}days'.format(fromDays, toDays)
+      result = urlfetch.fetch(download_url,
+                               method=urlfetch.GET,
+                               headers={'Cookie' : self.session_cookie},
+                               follow_redirects=True,
+                               validate_certificate=True)
+      
+      logging.info( '  download response status: ' + str(result.status_code))
+
+      sensor_data = json.loads(result.content)
+
+      sensor_id = sensor_data['response']['id']
+      sensor_serial = sensor_data['response']['serial']
+      sensor = sensor_key(sensor_owner_key(sensor_owner_email), sensor_serial).get()
+      
+      if sensor is not None :
+        logging.info ('  fetched sensor: {0}'.format(sensor.name))
+      
+      '''if we havn't seen this sensor before, add it'''
+      if sensor is None :
+        '''create a new one'''
+        sensor = Sensor()
+        sensor.key = sensor_key(sensor_owner_key(sensor_owner_email), sensor_serial )
+        sensor.name = sensor_id
+        sensor.first_observation_date = datetime.datetime.now()
+        sensor.last_observation_date = datetime.datetime(1970,11,7)
+        sensor.observation_count = 0
+        sensor.put()
+
+      observationCount = len(sensor_data['response']['obs'])
+              
+      logging.info ('  downloaded {0} data points'.format(observationCount))
+
+      '''decrement the number of days remaining to be processed by the length of this period'''
+      numberOfDaysToSync = numberOfDaysToSync - (endDate - startDate).days
+        
+      '''if we still have days to sync'''
+      if numberOfDaysToSync > 0 :
+        '''get detailed data 1 day at a time starting at the end date until we don't get anymore data'''
+        if observationCount <> 0 :
+          '''move the start and end dates one day back'''
+          startDate = startDate - datetime.timedelta(days=1)
+          endDate = startDate + datetime.timedelta(days=1)
+          '''fetch another day'''
+          self.fetchData (startDate, endDate, numberOfDaysToSync)
+        
+        '''if we're not getting detailed data and we still have days to sync, get the remaining as hourly'''
+        if observationCount == 0 :
+          '''set the first day in the period counting backward from the end of the last period requested'''
+          startDate = endDate - datetime.timedelta(days=numberOfDaysToSync)
+          '''the end date of this period is simply the end date of the last period requested'''
+          endDate = endDate
+          '''queue the last fetch '''
+          self.fetchData(startDate, endDate, numberOfDaysToSync)
+                  
+      '''process the observations in this response'''
+      for datapoint in sensor_data['response']['obs'] :
+        observation = observation_key( sensor.key, datapoint['timeStamp']).get()
+
+        '''if we havn't seen this observation before, add it'''
+        if observation is None :
+          # Add the task to the default queue.
+          taskqueue.add(url='/save_datapoint', 
+                        params={'sensor_serial' : sensor_serial,
+                                'time_stamp' : datapoint['timeStamp'],
+                                'date_time': datapoint['dateTimeISO'],
+                                'temperature_1' : datapoint['values']['temp1'] if 'temp1' in datapoint['values'] else '',
+                                'temperature_2' : datapoint['values']['temp2'] if 'temp2' in datapoint['values'] else '',
+                                'humidity' : datapoint['values']['rh'] if 'rh' in datapoint['values'] else '',
+                                'low_battery' : datapoint['values']['lowbatt'] if 'lowbatt' in datapoint['values'] else '',
+                                'link_quality' : datapoint['values']['linkquality'] if 'linkquality' in datapoint['values'] else ''})
+
+    def fetchData (self, startDate, endDate, numberOfDaysToSync) :
+      logging.info ( 'Queuing recursive fetch')
+      taskqueue.add(url='/fetch_observations', 
+                    params={'numberOfDaysToSync' : numberOfDaysToSync,
+                            'session_cookie' : self.session_cookie,
+                            'startDate' : startDate,
+                            'endDate' : endDate })
+
+
+
 application = webapp2.WSGIApplication([
     ('/', MainPage),
     ('/connect', GoogleSignIn),
@@ -355,6 +409,7 @@ application = webapp2.WSGIApplication([
     ('/sensor/(\d+)', Sensor_Handler),
     ('/sensor/new', New_Sensor_Handler),
     ('/sensor/(\d+)/sync', Synchronize),
-    ('/save_datapoint', SaveDataPoint)
+    ('/save_datapoint', SaveDataPoint),
+    ('/fetch_observations', FetchObservations)
 ], debug=True)
 
